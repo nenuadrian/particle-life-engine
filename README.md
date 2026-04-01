@@ -1,5 +1,10 @@
 # Particle Life Engine
 
+[![Docker](https://github.com/nenuadrian/particle-life-engine/actions/workflows/docker.yml/badge.svg)](https://github.com/nenuadrian/particle-life-engine/actions/workflows/docker.yml)
+[![Build](https://github.com/nenuadrian/particle-life-engine/actions/workflows/build.yml/badge.svg)](https://github.com/nenuadrian/particle-life-engine/actions/workflows/build.yml)
+[![Build](https://github.com/nenuadrian/particle-life-engine/actions/workflows/build.yml/badge.svg)](https://github.com/nenuadrian/particle-life-engine/actions/workflows/build.yml)
+[![Build](https://github.com/nenuadrian/particle-life-engine/actions/workflows/build.yml/badge.svg)](https://github.com/nenuadrian/particle-life-engine/actions/workflows/build.yml)
+
 GPU-accelerated Particle Life simulation using Vulkan compute shaders. Multiple particle types interact via configurable attraction/repulsion rules, producing emergent life-like behavior.
 
 ## Prerequisites
