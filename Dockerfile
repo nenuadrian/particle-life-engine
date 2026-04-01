@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     vulkan-validationlayers \
     glslang-tools \
     spirv-tools \
+    shaderc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
