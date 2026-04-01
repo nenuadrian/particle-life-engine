@@ -27,6 +27,7 @@ public:
     static constexpr uint32_t DEFAULT_PARTICLE_COUNT = 4000;
     static constexpr uint32_t DEFAULT_NUM_TYPES = 6;
     static constexpr uint32_t MAX_TYPES = 8;
+    static constexpr uint32_t MAX_PARTICLE_COUNT = 50000;
 
     void init(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t particleCount = DEFAULT_PARTICLE_COUNT, uint32_t numTypes = DEFAULT_NUM_TYPES);
     void cleanup(VkDevice device);

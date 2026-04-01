@@ -115,10 +115,17 @@ void GraphicsPipeline::createPipeline(VkDevice device, VkRenderPass renderPass, 
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(float);
+
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts = &descriptorSetLayout;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
 
     if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create graphics pipeline layout");
@@ -195,9 +202,10 @@ void GraphicsPipeline::createDescriptorSets(VkDevice device, ParticleSystem& par
     }
 }
 
-void GraphicsPipeline::recordCommands(VkCommandBuffer cmd, ParticleSystem& particles, int currentFrame) {
+void GraphicsPipeline::recordCommands(VkCommandBuffer cmd, ParticleSystem& particles, int currentFrame, float zoom) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
                             0, 1, &descriptorSets[currentFrame], 0, nullptr);
+    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &zoom);
     vkCmdDraw(cmd, particles.getParticleCount(), 1, 0, 0);
 }

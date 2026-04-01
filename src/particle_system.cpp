@@ -1,11 +1,12 @@
 #include "particle_system.h"
+#include <algorithm>
 #include <stdexcept>
 #include <cstring>
 
 void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
                           uint32_t count, uint32_t types) {
-    simParams.particleCount = count;
-    simParams.numTypes = types;
+    simParams.particleCount = std::clamp(count, 1u, MAX_PARTICLE_COUNT);
+    simParams.numTypes = std::clamp(types, 1u, MAX_TYPES);
     simParams.deltaTime = 0.016f;
     simParams.frictionFactor = 0.5f;
     simParams.forceScale = 0.05f;
@@ -82,6 +83,9 @@ void ParticleSystem::uploadAttractionMatrix(VkDevice device) {
 
 void ParticleSystem::reinitialize(VkDevice device, VkPhysicalDevice physicalDevice) {
     vkDeviceWaitIdle(device);
+
+    simParams.particleCount = std::clamp(simParams.particleCount, 1u, MAX_PARTICLE_COUNT);
+    simParams.numTypes = std::clamp(simParams.numTypes, 1u, MAX_TYPES);
 
     // Destroy old particle buffers
     vkDestroyBuffer(device, bufferA, nullptr);

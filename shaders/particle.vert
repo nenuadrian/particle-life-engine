@@ -13,13 +13,17 @@ layout(std430, set = 0, binding = 0) readonly buffer Particles {
     Particle particles[];
 };
 
+layout(push_constant) uniform RenderPushConstants {
+    float zoom;
+};
+
 layout(location = 0) out int outType;
 
 void main() {
     Particle p = particles[gl_VertexIndex];
 
     // Map [0,1] position to [-1,1] clip space
-    vec2 clipPos = p.position * 2.0 - 1.0;
+    vec2 clipPos = (p.position * 2.0 - 1.0) * zoom;
     gl_Position = vec4(clipPos, 0.0, 1.0);
     gl_PointSize = 3.0;
 

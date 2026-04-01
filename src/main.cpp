@@ -11,10 +11,15 @@
 #include <stdexcept>
 #include <string>
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 
 static constexpr int WIDTH = 1024;
 static constexpr int HEIGHT = 1024;
+static constexpr float DEFAULT_ZOOM = 1.0f;
+static constexpr float MIN_ZOOM = 0.25f;
+static constexpr float MAX_ZOOM = 8.0f;
+static constexpr float ZOOM_STEP = 1.15f;
 
 static const ImVec4 TYPE_COLORS[ParticleSystem::MAX_TYPES] = {
     {1.0f, 0.2f, 0.2f, 1.0f},
@@ -26,6 +31,17 @@ static const ImVec4 TYPE_COLORS[ParticleSystem::MAX_TYPES] = {
     {1.0f, 0.6f, 0.2f, 1.0f},
     {0.8f, 0.8f, 0.8f, 1.0f},
 };
+
+static float clampZoom(float zoom) {
+    return std::clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+}
+
+static void applyZoomSteps(float& zoom, float steps) {
+    if (steps == 0.0f) {
+        return;
+    }
+    zoom = clampZoom(zoom * std::pow(ZOOM_STEP, steps));
+}
 
 static void initImGui(VulkanContext& ctx) {
     IMGUI_CHECKVERSION();
@@ -58,10 +74,8 @@ static void initImGui(VulkanContext& ctx) {
     ImGui_ImplVulkan_CreateFontsTexture();
 }
 
-static void buildSettingsUI(ParticleSystem& particles, VulkanContext& ctx,
-                            ComputePipeline& computePipe, GraphicsPipeline& graphicsPipe,
-                            float fps, bool& needsReinit, bool& attractionDirty,
-                            const std::string& shaderDir) {
+static void buildSettingsUI(ParticleSystem& particles, float fps, bool& needsReinit,
+                            bool& attractionDirty, float& zoom) {
     SimParams& p = particles.getSimParams();
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
@@ -81,6 +95,16 @@ static void buildSettingsUI(ParticleSystem& particles, VulkanContext& ctx,
         ImGui::SliderFloat("Force Scale", &p.forceScale, 0.001f, 0.5f, "%.3f");
     }
 
+    if (ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Zoom", &zoom, MIN_ZOOM, MAX_ZOOM, "%.2fx", ImGuiSliderFlags_Logarithmic);
+        zoom = clampZoom(zoom);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Zoom")) {
+            zoom = DEFAULT_ZOOM;
+        }
+        ImGui::TextUnformatted("Mouse wheel or +/- keys");
+    }
+
     // Interaction parameters
     if (ImGui::CollapsingHeader("Interaction", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SliderFloat("Max Distance", &p.maxDistance, 0.01f, 0.5f, "%.3f");
@@ -93,7 +117,7 @@ static void buildSettingsUI(ParticleSystem& particles, VulkanContext& ctx,
         int count = static_cast<int>(p.particleCount);
         int types = static_cast<int>(p.numTypes);
 
-        if (ImGui::SliderInt("Count", &count, 100, 20000)) {
+        if (ImGui::SliderInt("Count", &count, 100, static_cast<int>(ParticleSystem::MAX_PARTICLE_COUNT))) {
             p.particleCount = static_cast<uint32_t>(count);
             needsReinit = true;
         }
@@ -110,6 +134,7 @@ static void buildSettingsUI(ParticleSystem& particles, VulkanContext& ctx,
         if (ImGui::Button("Reset Particles")) {
             needsReinit = true;
         }
+        ImGui::TextUnformatted("Higher counts are slower: the compute pass is O(n^2).");
     }
 
     // Attraction matrix
@@ -182,6 +207,9 @@ int main() {
         int currentFrame = 0;
         bool showUI = true;
         bool tabWasPressed = false;
+        bool zoomInWasPressed = false;
+        bool zoomOutWasPressed = false;
+        float zoom = DEFAULT_ZOOM;
 
         auto lastTime = std::chrono::steady_clock::now();
         float fps = 0.0f;
@@ -212,12 +240,33 @@ int main() {
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
+            ImGuiIO& io = ImGui::GetIO();
+            if (!io.WantCaptureMouse && io.MouseWheel != 0.0f) {
+                applyZoomSteps(zoom, io.MouseWheel);
+            }
+
+            bool zoomInDown = glfwGetKey(ctx.getWindow(), GLFW_KEY_EQUAL) == GLFW_PRESS ||
+                              glfwGetKey(ctx.getWindow(), GLFW_KEY_KP_ADD) == GLFW_PRESS;
+            bool zoomOutDown = glfwGetKey(ctx.getWindow(), GLFW_KEY_MINUS) == GLFW_PRESS ||
+                               glfwGetKey(ctx.getWindow(), GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS;
+
+            if (!io.WantCaptureKeyboard) {
+                if (zoomInDown && !zoomInWasPressed) {
+                    applyZoomSteps(zoom, 1.0f);
+                }
+                if (zoomOutDown && !zoomOutWasPressed) {
+                    applyZoomSteps(zoom, -1.0f);
+                }
+            }
+
+            zoomInWasPressed = zoomInDown;
+            zoomOutWasPressed = zoomOutDown;
+
             bool needsReinit = false;
             bool attractionDirty = false;
 
             if (showUI) {
-                buildSettingsUI(particles, ctx, computePipe, graphicsPipe,
-                               fps, needsReinit, attractionDirty, shaderDir);
+                buildSettingsUI(particles, fps, needsReinit, attractionDirty, zoom);
             }
 
             ImGui::Render();
@@ -314,7 +363,7 @@ int main() {
             rpBegin.pClearValues = &clearColor;
 
             vkCmdBeginRenderPass(graphicsCmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
-            graphicsPipe.recordCommands(graphicsCmd, particles, currentFrame);
+            graphicsPipe.recordCommands(graphicsCmd, particles, currentFrame, zoom);
 
             // Render ImGui on top of particles
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graphicsCmd);
