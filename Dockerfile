@@ -2,13 +2,16 @@ FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y \
+# Add LunarG Vulkan SDK repository (provides glslc via vulkan-sdk)
+RUN apt-get update && apt-get install -y wget gnupg2 && \
+    wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+        | tee /etc/apt/trusted.gpg.d/lunarg.asc && \
+    wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list \
+        https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list && \
+    apt-get update && apt-get install -y \
     build-essential \
     cmake \
     git \
-    wget \
-    gnupg2 \
-    software-properties-common \
     libx11-dev \
     libxrandr-dev \
     libxinerama-dev \
@@ -16,12 +19,7 @@ RUN apt-get update && apt-get install -y \
     libxi-dev \
     libwayland-dev \
     libxkbcommon-dev \
-    vulkan-tools \
-    libvulkan-dev \
-    vulkan-validationlayers \
-    glslang-tools \
-    spirv-tools \
-    shaderc \
+    vulkan-sdk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
