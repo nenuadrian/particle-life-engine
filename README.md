@@ -7,6 +7,8 @@
 
 GPU-accelerated Particle Life simulation using Vulkan compute shaders. Multiple particle types interact via configurable attraction/repulsion rules, producing emergent life-like behavior.
 
+![Particle Life Engine](assets/example.png)
+
 ## Prerequisites
 
 - CMake 3.20+
