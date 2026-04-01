@@ -1,0 +1,105 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+struct Particle {
+    vec2 position;
+    vec2 velocity;
+    int particleType;
+    float _pad1;
+    float _pad2;
+    float _pad3;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer ParticlesIn {
+    Particle particlesIn[];
+};
+
+layout(std430, set = 0, binding = 1) writeonly buffer ParticlesOut {
+    Particle particlesOut[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint particleCount;
+    uint numTypes;
+    float deltaTime;
+    float frictionFactor;
+    float forceScale;
+    float maxDistance;
+    float minDistance;
+    float repulsionStrength;
+};
+
+// Attraction matrix stored as a UBO (max 8x8 = 64 floats)
+layout(std140, set = 0, binding = 2) uniform AttractionMatrix {
+    float attractions[64]; // numTypes x numTypes, row-major
+};
+
+float getAttraction(int typeA, int typeB) {
+    return attractions[typeA * int(numTypes) + typeB];
+}
+
+// Force curve: repulsion at very close range, attraction/repulsion at medium range, zero beyond maxDistance
+vec2 computeForce(vec2 posA, vec2 posB, int typeA, int typeB) {
+    vec2 delta = posB - posA;
+
+    // Wrap around for toroidal topology
+    if (delta.x > 0.5) delta.x -= 1.0;
+    if (delta.x < -0.5) delta.x += 1.0;
+    if (delta.y > 0.5) delta.y -= 1.0;
+    if (delta.y < -0.5) delta.y += 1.0;
+
+    float dist = length(delta);
+    if (dist < 0.0001 || dist > maxDistance) return vec2(0.0);
+
+    vec2 direction = delta / dist;
+
+    float force;
+    if (dist < minDistance) {
+        // Strong repulsion at very close range
+        float t = dist / minDistance;
+        force = repulsionStrength * (t - 1.0);
+    } else {
+        // Attraction/repulsion based on type interaction
+        float t = (dist - minDistance) / (maxDistance - minDistance);
+        float attraction = getAttraction(typeA, typeB);
+        // Bell curve: peaks at midpoint, zero at edges
+        force = attraction * (1.0 - abs(2.0 * t - 1.0));
+    }
+
+    return direction * force * forceScale;
+}
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= particleCount) return;
+
+    Particle self = particlesIn[idx];
+    vec2 totalForce = vec2(0.0);
+
+    for (uint i = 0; i < particleCount; i++) {
+        if (i == idx) continue;
+        Particle other = particlesIn[i];
+        totalForce += computeForce(self.position, other.position, self.particleType, other.particleType);
+    }
+
+    // Update velocity with friction
+    vec2 newVelocity = self.velocity * frictionFactor + totalForce * deltaTime;
+
+    // Clamp velocity
+    float speed = length(newVelocity);
+    if (speed > 0.1) {
+        newVelocity = newVelocity / speed * 0.1;
+    }
+
+    // Update position with wrapping
+    vec2 newPosition = self.position + newVelocity * deltaTime;
+    newPosition = fract(newPosition); // Wrap to [0, 1]
+
+    particlesOut[idx].position = newPosition;
+    particlesOut[idx].velocity = newVelocity;
+    particlesOut[idx].particleType = self.particleType;
+    particlesOut[idx]._pad1 = 0.0;
+    particlesOut[idx]._pad2 = 0.0;
+    particlesOut[idx]._pad3 = 0.0;
+}
