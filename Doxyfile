@@ -30,7 +30,6 @@ SEARCHENGINE           = YES
 
 # Diagrams (disabled — no graphviz required in CI)
 HAVE_DOT               = NO
-CLASS_DIAGRAMS         = YES
 
 QUIET                  = YES
 WARNINGS               = YES

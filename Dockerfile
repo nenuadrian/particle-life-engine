@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y wget gnupg2 && \
     build-essential \
     cmake \
     git \
+    pkg-config \
     libx11-dev \
     libxrandr-dev \
     libxinerama-dev \
