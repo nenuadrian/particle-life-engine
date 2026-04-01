@@ -50,6 +50,8 @@ public:
     const std::vector<VkImageView>& getSwapchainImageViews() const { return swapchainImageViews; }
     const QueueFamilyIndices& getQueueFamilies() const { return queueFamilies; }
     VkCommandPool getCommandPool() const { return commandPool; }
+    VkDescriptorPool getImGuiDescriptorPool() const { return imguiDescriptorPool; }
+    uint32_t getSwapchainImageCount() const { return static_cast<uint32_t>(swapchainImages.size()); }
 
     // Frame sync
     VkSemaphore getImageAvailableSemaphore(int frame) const { return imageAvailableSemaphores[frame]; }
@@ -87,6 +89,7 @@ private:
     std::vector<VkFramebuffer> framebuffers;
 
     VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkDescriptorPool imguiDescriptorPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     std::vector<VkCommandBuffer> computeCommandBuffers;
 
@@ -108,6 +111,7 @@ private:
     void createCommandPool();
     void createCommandBuffers();
     void createSyncObjects();
+    void createImGuiDescriptorPool();
 
     void cleanupSwapchain();
 

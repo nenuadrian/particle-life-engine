@@ -2,12 +2,165 @@
 #include "particle_system.h"
 #include "compute_pipeline.h"
 #include "graphics_pipeline.h"
+
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <chrono>
+#include <cmath>
 
 static constexpr int WIDTH = 1024;
 static constexpr int HEIGHT = 1024;
+
+static const ImVec4 TYPE_COLORS[ParticleSystem::MAX_TYPES] = {
+    {1.0f, 0.2f, 0.2f, 1.0f},
+    {0.2f, 1.0f, 0.2f, 1.0f},
+    {0.3f, 0.5f, 1.0f, 1.0f},
+    {1.0f, 1.0f, 0.2f, 1.0f},
+    {1.0f, 0.2f, 1.0f, 1.0f},
+    {0.2f, 1.0f, 1.0f, 1.0f},
+    {1.0f, 0.6f, 0.2f, 1.0f},
+    {0.8f, 0.8f, 0.8f, 1.0f},
+};
+
+static void initImGui(VulkanContext& ctx) {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 6.0f;
+    style.FrameRounding = 3.0f;
+    style.Alpha = 0.95f;
+
+    ImGui_ImplGlfw_InitForVulkan(ctx.getWindow(), true);
+
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.Instance = ctx.getInstance();
+    initInfo.PhysicalDevice = ctx.getPhysicalDevice();
+    initInfo.Device = ctx.getDevice();
+    initInfo.QueueFamily = ctx.getQueueFamilies().graphicsFamily.value();
+    initInfo.Queue = ctx.getGraphicsQueue();
+    initInfo.DescriptorPool = ctx.getImGuiDescriptorPool();
+    initInfo.MinImageCount = 2;
+    initInfo.ImageCount = ctx.getSwapchainImageCount();
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.RenderPass = ctx.getRenderPass();
+    initInfo.Subpass = 0;
+
+    ImGui_ImplVulkan_Init(&initInfo);
+    ImGui_ImplVulkan_CreateFontsTexture();
+}
+
+static void buildSettingsUI(ParticleSystem& particles, VulkanContext& ctx,
+                            ComputePipeline& computePipe, GraphicsPipeline& graphicsPipe,
+                            float fps, bool& needsReinit, bool& attractionDirty,
+                            const std::string& shaderDir) {
+    SimParams& p = particles.getSimParams();
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(380, 0), ImGuiCond_FirstUseEver);
+
+    ImGui::Begin("Settings (Tab to toggle)");
+
+    // FPS
+    ImGui::Text("FPS: %.1f", fps);
+    ImGui::Text("Particles: %u | Types: %u", p.particleCount, p.numTypes);
+    ImGui::Separator();
+
+    // Simulation parameters
+    if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Time Step", &p.deltaTime, 0.001f, 0.1f, "%.3f");
+        ImGui::SliderFloat("Friction", &p.frictionFactor, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Force Scale", &p.forceScale, 0.001f, 0.5f, "%.3f");
+    }
+
+    // Interaction parameters
+    if (ImGui::CollapsingHeader("Interaction", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Max Distance", &p.maxDistance, 0.01f, 0.5f, "%.3f");
+        ImGui::SliderFloat("Min Distance", &p.minDistance, 0.001f, p.maxDistance, "%.3f");
+        ImGui::SliderFloat("Repulsion", &p.repulsionStrength, 0.0f, 5.0f, "%.2f");
+    }
+
+    // Particle settings
+    if (ImGui::CollapsingHeader("Particles")) {
+        int count = static_cast<int>(p.particleCount);
+        int types = static_cast<int>(p.numTypes);
+
+        if (ImGui::SliderInt("Count", &count, 100, 20000)) {
+            p.particleCount = static_cast<uint32_t>(count);
+            needsReinit = true;
+        }
+        if (ImGui::SliderInt("Types", &types, 1, static_cast<int>(ParticleSystem::MAX_TYPES))) {
+            p.numTypes = static_cast<uint32_t>(types);
+            needsReinit = true;
+        }
+
+        if (ImGui::Button("Randomize Attractions")) {
+            particles.randomizeAttractions();
+            attractionDirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Particles")) {
+            needsReinit = true;
+        }
+    }
+
+    // Attraction matrix
+    if (ImGui::CollapsingHeader("Attraction Matrix")) {
+        float* matrix = particles.getAttractionMatrix();
+        uint32_t n = p.numTypes;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2, 2));
+
+        // Column headers
+        ImGui::Text("     ");
+        for (uint32_t j = 0; j < n; j++) {
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[j]);
+            ImGui::Text("  %u  ", j);
+            ImGui::PopStyleColor();
+        }
+
+        for (uint32_t i = 0; i < n; i++) {
+            ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[i]);
+            ImGui::Text("  %u  ", i);
+            ImGui::PopStyleColor();
+            for (uint32_t j = 0; j < n; j++) {
+                ImGui::SameLine();
+                float& val = matrix[i * ParticleSystem::MAX_TYPES + j];
+
+                // Color the slider based on value: red for negative, green for positive
+                float t = (val + 1.0f) * 0.5f;
+                ImVec4 col(1.0f - t, t, 0.2f, 0.7f);
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, col);
+                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(col.x, col.y, col.z, 0.9f));
+                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(col.x, col.y, col.z, 1.0f));
+
+                ImGui::PushItemWidth(36);
+                char label[16];
+                snprintf(label, sizeof(label), "##a%u%u", i, j);
+                if (ImGui::SliderFloat(label, &val, -1.0f, 1.0f, "")) {
+                    attractionDirty = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Type %u -> %u: %.2f", i, j, val);
+                }
+                ImGui::PopItemWidth();
+                ImGui::PopStyleColor(3);
+            }
+        }
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::End();
+}
 
 int main() {
     VulkanContext ctx;
@@ -24,10 +177,65 @@ int main() {
         graphicsPipe.init(ctx.getDevice(), ctx.getRenderPass(), ctx.getSwapchainExtent(),
                          particles, shaderDir);
 
+        initImGui(ctx);
+
         int currentFrame = 0;
+        bool showUI = true;
+        bool tabWasPressed = false;
+
+        auto lastTime = std::chrono::steady_clock::now();
+        float fps = 0.0f;
+        int frameCount = 0;
 
         while (!ctx.shouldClose()) {
             ctx.pollEvents();
+
+            // Toggle UI with Tab
+            bool tabDown = glfwGetKey(ctx.getWindow(), GLFW_KEY_TAB) == GLFW_PRESS;
+            if (tabDown && !tabWasPressed) {
+                showUI = !showUI;
+            }
+            tabWasPressed = tabDown;
+
+            // FPS calculation
+            frameCount++;
+            auto now = std::chrono::steady_clock::now();
+            float elapsed = std::chrono::duration<float>(now - lastTime).count();
+            if (elapsed >= 0.5f) {
+                fps = static_cast<float>(frameCount) / elapsed;
+                frameCount = 0;
+                lastTime = now;
+            }
+
+            // ImGui new frame
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+
+            bool needsReinit = false;
+            bool attractionDirty = false;
+
+            if (showUI) {
+                buildSettingsUI(particles, ctx, computePipe, graphicsPipe,
+                               fps, needsReinit, attractionDirty, shaderDir);
+            }
+
+            ImGui::Render();
+
+            // Handle reinit if particle count/types changed
+            if (needsReinit) {
+                particles.reinitialize(ctx.getDevice(), ctx.getPhysicalDevice());
+                computePipe.updateDescriptors(ctx.getDevice(), particles);
+                // Recreate graphics descriptor sets by full reinit
+                graphicsPipe.cleanup(ctx.getDevice());
+                graphicsPipe.init(ctx.getDevice(), ctx.getRenderPass(), ctx.getSwapchainExtent(),
+                                particles, shaderDir);
+                continue;
+            }
+
+            if (attractionDirty) {
+                particles.uploadAttractionMatrix(ctx.getDevice());
+            }
 
             // Wait for compute fence
             VkFence computeFence = ctx.getComputeInFlightFence(currentFrame);
@@ -107,6 +315,10 @@ int main() {
 
             vkCmdBeginRenderPass(graphicsCmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
             graphicsPipe.recordCommands(graphicsCmd, particles, currentFrame);
+
+            // Render ImGui on top of particles
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graphicsCmd);
+
             vkCmdEndRenderPass(graphicsCmd);
             vkEndCommandBuffer(graphicsCmd);
 
@@ -160,6 +372,10 @@ int main() {
         }
 
         vkDeviceWaitIdle(ctx.getDevice());
+
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
 
         graphicsPipe.cleanup(ctx.getDevice());
         computePipe.cleanup(ctx.getDevice());

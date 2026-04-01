@@ -4,10 +4,16 @@
 
 void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
                           uint32_t count, uint32_t types) {
-    particleCount = count;
-    numTypes = types;
+    simParams.particleCount = count;
+    simParams.numTypes = types;
+    simParams.deltaTime = 0.016f;
+    simParams.frictionFactor = 0.5f;
+    simParams.forceScale = 0.05f;
+    simParams.maxDistance = 0.15f;
+    simParams.minDistance = 0.02f;
+    simParams.repulsionStrength = 1.0f;
 
-    VkDeviceSize particleSize = sizeof(Particle) * particleCount;
+    VkDeviceSize particleSize = sizeof(Particle) * simParams.particleCount;
     VkBufferUsageFlags ssboUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -20,9 +26,16 @@ void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
                  VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, memProps, attractionBuffer, attractionMemory);
 
     // Initialize particles
-    std::vector<Particle> particles(particleCount);
+    initParticleData(device);
+
+    randomizeAttractions();
+    uploadAttractionMatrix(device);
+}
+
+void ParticleSystem::initParticleData(VkDevice device) {
+    std::vector<Particle> particles(simParams.particleCount);
     std::uniform_real_distribution<float> posDist(0.0f, 1.0f);
-    std::uniform_int_distribution<int> typeDist(0, static_cast<int>(numTypes) - 1);
+    std::uniform_int_distribution<int> typeDist(0, static_cast<int>(simParams.numTypes) - 1);
 
     for (auto& p : particles) {
         p.posX = posDist(rng);
@@ -33,7 +46,7 @@ void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
         p._pad1 = p._pad2 = p._pad3 = 0.0f;
     }
 
-    // Upload to both buffers
+    VkDeviceSize particleSize = sizeof(Particle) * simParams.particleCount;
     void* data;
     vkMapMemory(device, memoryA, 0, particleSize, 0, &data);
     memcpy(data, particles.data(), particleSize);
@@ -42,13 +55,6 @@ void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
     vkMapMemory(device, memoryB, 0, particleSize, 0, &data);
     memcpy(data, particles.data(), particleSize);
     vkUnmapMemory(device, memoryB);
-
-    randomizeAttractions();
-
-    // Upload attraction matrix
-    vkMapMemory(device, attractionMemory, 0, getAttractionBufferSize(), 0, &data);
-    memcpy(data, attractions, getAttractionBufferSize());
-    vkUnmapMemory(device, attractionMemory);
 }
 
 void ParticleSystem::cleanup(VkDevice device) {
@@ -67,17 +73,34 @@ void ParticleSystem::randomizeAttractions() {
     }
 }
 
-SimParams ParticleSystem::getSimParams() const {
-    SimParams params{};
-    params.particleCount = particleCount;
-    params.numTypes = numTypes;
-    params.deltaTime = 0.016f;
-    params.frictionFactor = 0.5f;
-    params.forceScale = 0.05f;
-    params.maxDistance = 0.15f;
-    params.minDistance = 0.02f;
-    params.repulsionStrength = 1.0f;
-    return params;
+void ParticleSystem::uploadAttractionMatrix(VkDevice device) {
+    void* data;
+    vkMapMemory(device, attractionMemory, 0, getAttractionBufferSize(), 0, &data);
+    memcpy(data, attractions, getAttractionBufferSize());
+    vkUnmapMemory(device, attractionMemory);
+}
+
+void ParticleSystem::reinitialize(VkDevice device, VkPhysicalDevice physicalDevice) {
+    vkDeviceWaitIdle(device);
+
+    // Destroy old particle buffers
+    vkDestroyBuffer(device, bufferA, nullptr);
+    vkDestroyBuffer(device, bufferB, nullptr);
+    vkFreeMemory(device, memoryA, nullptr);
+    vkFreeMemory(device, memoryB, nullptr);
+
+    VkDeviceSize particleSize = sizeof(Particle) * simParams.particleCount;
+    VkBufferUsageFlags ssboUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VkMemoryPropertyFlags memProps = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+    createBuffer(device, physicalDevice, particleSize, ssboUsage, memProps, bufferA, memoryA);
+    createBuffer(device, physicalDevice, particleSize, ssboUsage, memProps, bufferB, memoryB);
+
+    initParticleData(device);
+    uploadAttractionMatrix(device);
 }
 
 void ParticleSystem::createBuffer(VkDevice device, VkPhysicalDevice physicalDevice,

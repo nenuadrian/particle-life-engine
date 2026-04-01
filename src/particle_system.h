@@ -35,18 +35,27 @@ public:
     VkBuffer getBufferA() const { return bufferA; }
     VkBuffer getBufferB() const { return bufferB; }
     VkBuffer getAttractionBuffer() const { return attractionBuffer; }
-    VkDeviceSize getBufferSize() const { return sizeof(Particle) * particleCount; }
+    VkDeviceSize getBufferSize() const { return sizeof(Particle) * simParams.particleCount; }
     VkDeviceSize getAttractionBufferSize() const { return sizeof(float) * MAX_TYPES * MAX_TYPES; }
 
-    SimParams getSimParams() const;
-    uint32_t getParticleCount() const { return particleCount; }
-    uint32_t getNumTypes() const { return numTypes; }
+    SimParams& getSimParams() { return simParams; }
+    const SimParams& getSimParams() const { return simParams; }
+    uint32_t getParticleCount() const { return simParams.particleCount; }
+    uint32_t getNumTypes() const { return simParams.numTypes; }
+
+    // Attraction matrix access
+    float* getAttractionMatrix() { return attractions; }
+    float getAttraction(int a, int b) const { return attractions[a * MAX_TYPES + b]; }
+    void setAttraction(int a, int b, float val) { attractions[a * MAX_TYPES + b] = val; }
+    void uploadAttractionMatrix(VkDevice device);
+
+    // Reinitialize particles (e.g. after changing count or types)
+    void reinitialize(VkDevice device, VkPhysicalDevice physicalDevice);
 
     void swapBuffers() { std::swap(bufferA, bufferB); std::swap(memoryA, memoryB); }
 
 private:
-    uint32_t particleCount = 0;
-    uint32_t numTypes = 0;
+    SimParams simParams{};
 
     VkBuffer bufferA = VK_NULL_HANDLE;
     VkBuffer bufferB = VK_NULL_HANDLE;
@@ -58,6 +67,7 @@ private:
     float attractions[MAX_TYPES * MAX_TYPES] = {};
     std::mt19937 rng{42};
 
+    void initParticleData(VkDevice device);
     void createBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
                       VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,

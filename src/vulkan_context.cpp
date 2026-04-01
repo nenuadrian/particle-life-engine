@@ -57,6 +57,7 @@ void VulkanContext::init(int width, int height, const std::string& title) {
     createCommandPool();
     createCommandBuffers();
     createSyncObjects();
+    createImGuiDescriptorPool();
 }
 
 void VulkanContext::cleanup() {
@@ -72,6 +73,7 @@ void VulkanContext::cleanup() {
         vkDestroyFence(device, computeInFlightFences[i], nullptr);
     }
 
+    vkDestroyDescriptorPool(device, imguiDescriptorPool, nullptr);
     vkDestroyCommandPool(device, commandPool, nullptr);
     vkDestroyDevice(device, nullptr);
 
@@ -515,6 +517,23 @@ void VulkanContext::cleanupSwapchain() {
     vkDestroyRenderPass(device, renderPass, nullptr);
     for (auto iv : swapchainImageViews) vkDestroyImageView(device, iv, nullptr);
     vkDestroySwapchainKHR(device, swapchain, nullptr);
+}
+
+void VulkanContext::createImGuiDescriptorPool() {
+    VkDescriptorPoolSize poolSizes[] = {
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+    };
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = poolSizes;
+
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &imguiDescriptorPool) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create ImGui descriptor pool");
+    }
 }
 
 void VulkanContext::recreateSwapchain() {
