@@ -28,6 +28,7 @@ layout(push_constant) uniform PushConstants {
     float maxDistance;
     float minDistance;
     float repulsionStrength;
+    float worldSize;
 };
 
 // Attraction matrix stored as a UBO (max 8x8 = 64 floats)
@@ -42,12 +43,13 @@ float getAttraction(int typeA, int typeB) {
 // Force curve: repulsion at very close range, attraction/repulsion at medium range, zero beyond maxDistance
 vec2 computeForce(vec2 posA, vec2 posB, int typeA, int typeB) {
     vec2 delta = posB - posA;
+    float halfWorld = worldSize * 0.5;
 
     // Wrap around for toroidal topology
-    if (delta.x > 0.5) delta.x -= 1.0;
-    if (delta.x < -0.5) delta.x += 1.0;
-    if (delta.y > 0.5) delta.y -= 1.0;
-    if (delta.y < -0.5) delta.y += 1.0;
+    if (delta.x > halfWorld) delta.x -= worldSize;
+    if (delta.x < -halfWorld) delta.x += worldSize;
+    if (delta.y > halfWorld) delta.y -= worldSize;
+    if (delta.y < -halfWorld) delta.y += worldSize;
 
     float dist = length(delta);
     if (dist < 0.0001 || dist > maxDistance) return vec2(0.0);
@@ -94,7 +96,9 @@ void main() {
 
     // Update position with wrapping
     vec2 newPosition = self.position + newVelocity * deltaTime;
-    newPosition = fract(newPosition); // Wrap to [0, 1]
+    newPosition = mod(newPosition, vec2(worldSize));
+    if (newPosition.x < 0.0) newPosition.x += worldSize;
+    if (newPosition.y < 0.0) newPosition.y += worldSize;
 
     particlesOut[idx].position = newPosition;
     particlesOut[idx].velocity = newVelocity;

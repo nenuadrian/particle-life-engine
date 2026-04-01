@@ -13,7 +13,7 @@ public:
     void recreate(VkDevice device, VkRenderPass renderPass, VkExtent2D extent,
                   const std::string& shaderDir);
 
-    void recordCommands(VkCommandBuffer cmd, ParticleSystem& particles, int currentFrame, float zoom);
+    void recordCommands(VkCommandBuffer cmd, ParticleSystem& particles, int currentFrame);
     VkDescriptorSet getDescriptorSet(int frame) const { return descriptorSets[frame]; }
 
 private:

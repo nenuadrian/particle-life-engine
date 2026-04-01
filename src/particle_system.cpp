@@ -1,7 +1,8 @@
 #include "particle_system.h"
 #include <algorithm>
-#include <stdexcept>
 #include <cstring>
+#include <cmath>
+#include <stdexcept>
 
 void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
                           uint32_t count, uint32_t types) {
@@ -13,6 +14,7 @@ void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
     simParams.maxDistance = 0.15f;
     simParams.minDistance = 0.02f;
     simParams.repulsionStrength = 1.0f;
+    simParams.worldSize = 1.0f;
 
     VkDeviceSize particleSize = sizeof(Particle) * simParams.particleCount;
     VkBufferUsageFlags ssboUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -35,7 +37,7 @@ void ParticleSystem::init(VkDevice device, VkPhysicalDevice physicalDevice,
 
 void ParticleSystem::initParticleData(VkDevice device) {
     std::vector<Particle> particles(simParams.particleCount);
-    std::uniform_real_distribution<float> posDist(0.0f, 1.0f);
+    std::uniform_real_distribution<float> posDist(0.0f, simParams.worldSize);
     std::uniform_int_distribution<int> typeDist(0, static_cast<int>(simParams.numTypes) - 1);
 
     for (auto& p : particles) {
@@ -105,6 +107,44 @@ void ParticleSystem::reinitialize(VkDevice device, VkPhysicalDevice physicalDevi
 
     initParticleData(device);
     uploadAttractionMatrix(device);
+}
+
+void ParticleSystem::setWorldSize(VkDevice device, float newWorldSize) {
+    newWorldSize = std::max(newWorldSize, 0.01f);
+    if (std::abs(simParams.worldSize - newWorldSize) < 0.0001f) {
+        return;
+    }
+
+    vkDeviceWaitIdle(device);
+
+    const float oldWorldSize = simParams.worldSize;
+    recenterParticlesForWorldSize(device, memoryA, oldWorldSize, newWorldSize);
+    recenterParticlesForWorldSize(device, memoryB, oldWorldSize, newWorldSize);
+    simParams.worldSize = newWorldSize;
+}
+
+void ParticleSystem::recenterParticlesForWorldSize(VkDevice device, VkDeviceMemory memory,
+                                                   float oldWorldSize, float newWorldSize) {
+    std::vector<Particle> particles(simParams.particleCount);
+    void* data = nullptr;
+    VkDeviceSize particleSize = sizeof(Particle) * simParams.particleCount;
+    vkMapMemory(device, memory, 0, particleSize, 0, &data);
+    memcpy(particles.data(), data, particleSize);
+
+    const float offset = (newWorldSize - oldWorldSize) * 0.5f;
+    for (auto& particle : particles) {
+        particle.posX = std::fmod(particle.posX + offset, newWorldSize);
+        particle.posY = std::fmod(particle.posY + offset, newWorldSize);
+        if (particle.posX < 0.0f) {
+            particle.posX += newWorldSize;
+        }
+        if (particle.posY < 0.0f) {
+            particle.posY += newWorldSize;
+        }
+    }
+
+    memcpy(data, particles.data(), particleSize);
+    vkUnmapMemory(device, memory);
 }
 
 void ParticleSystem::createBuffer(VkDevice device, VkPhysicalDevice physicalDevice,

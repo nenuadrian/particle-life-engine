@@ -1,7 +1,15 @@
 #include "graphics_pipeline.h"
 #include "shader_utils.h"
 #include "vulkan_context.h"
+#include <algorithm>
 #include <stdexcept>
+
+namespace {
+struct RenderPushConstants {
+    float worldSize;
+    float viewScale;
+};
+}
 
 void GraphicsPipeline::init(VkDevice device, VkRenderPass renderPass, VkExtent2D extent,
                             ParticleSystem& particles, const std::string& shaderDir) {
@@ -118,7 +126,7 @@ void GraphicsPipeline::createPipeline(VkDevice device, VkRenderPass renderPass, 
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pushRange.offset = 0;
-    pushRange.size = sizeof(float);
+    pushRange.size = sizeof(RenderPushConstants);
 
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -202,10 +210,14 @@ void GraphicsPipeline::createDescriptorSets(VkDevice device, ParticleSystem& par
     }
 }
 
-void GraphicsPipeline::recordCommands(VkCommandBuffer cmd, ParticleSystem& particles, int currentFrame, float zoom) {
+void GraphicsPipeline::recordCommands(VkCommandBuffer cmd, ParticleSystem& particles, int currentFrame) {
+    RenderPushConstants pushConstants{};
+    pushConstants.worldSize = particles.getSimParams().worldSize;
+    pushConstants.viewScale = std::max(1.0f, 1.0f / particles.getSimParams().worldSize);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
                             0, 1, &descriptorSets[currentFrame], 0, nullptr);
-    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &zoom);
+    vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                       sizeof(RenderPushConstants), &pushConstants);
     vkCmdDraw(cmd, particles.getParticleCount(), 1, 0, 0);
 }

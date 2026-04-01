@@ -36,6 +36,11 @@ static float clampZoom(float zoom) {
     return std::clamp(zoom, MIN_ZOOM, MAX_ZOOM);
 }
 
+static float worldSizeForZoom(float zoom) {
+    zoom = clampZoom(zoom);
+    return zoom < 1.0f ? 1.0f / zoom : 1.0f;
+}
+
 static void applyZoomSteps(float& zoom, float steps) {
     if (steps == 0.0f) {
         return;
@@ -103,6 +108,7 @@ static void buildSettingsUI(ParticleSystem& particles, float fps, bool& needsRei
             zoom = DEFAULT_ZOOM;
         }
         ImGui::TextUnformatted("Mouse wheel or +/- keys");
+        ImGui::Text("Arena: %.2f x %.2f", worldSizeForZoom(zoom), worldSizeForZoom(zoom));
     }
 
     // Interaction parameters
@@ -269,6 +275,8 @@ int main() {
                 buildSettingsUI(particles, fps, needsReinit, attractionDirty, zoom);
             }
 
+            particles.setWorldSize(ctx.getDevice(), worldSizeForZoom(zoom));
+
             ImGui::Render();
 
             // Handle reinit if particle count/types changed
@@ -363,7 +371,7 @@ int main() {
             rpBegin.pClearValues = &clearColor;
 
             vkCmdBeginRenderPass(graphicsCmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
-            graphicsPipe.recordCommands(graphicsCmd, particles, currentFrame, zoom);
+            graphicsPipe.recordCommands(graphicsCmd, particles, currentFrame);
 
             // Render ImGui on top of particles
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graphicsCmd);

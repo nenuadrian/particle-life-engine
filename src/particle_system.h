@@ -20,6 +20,7 @@ struct SimParams {
     float maxDistance;
     float minDistance;
     float repulsionStrength;
+    float worldSize;
 };
 
 class ParticleSystem {
@@ -52,6 +53,7 @@ public:
 
     // Reinitialize particles (e.g. after changing count or types)
     void reinitialize(VkDevice device, VkPhysicalDevice physicalDevice);
+    void setWorldSize(VkDevice device, float newWorldSize);
 
     void swapBuffers() { std::swap(bufferA, bufferB); std::swap(memoryA, memoryB); }
 
@@ -69,6 +71,7 @@ private:
     std::mt19937 rng{42};
 
     void initParticleData(VkDevice device);
+    void recenterParticlesForWorldSize(VkDevice device, VkDeviceMemory memory, float oldWorldSize, float newWorldSize);
     void createBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
                       VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
