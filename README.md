@@ -8,6 +8,8 @@ GPU-accelerated Particle Life simulation using Vulkan compute shaders. Multiple 
 
 ![Particle Life Engine](assets/example.png)
 
+![Particle Life Engine](assets/example2.png)
+
 ## Prerequisites
 
 - CMake 3.20+
