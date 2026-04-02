@@ -4,6 +4,7 @@
 #include "particle_system.h"
 #include "compute_pipeline.h"
 #include "graphics_pipeline.h"
+#include "math_utils.h"
 
 #include <string>
 #include <chrono>
@@ -53,8 +54,6 @@ private:
     void submitGraphics(uint32_t imageIndex);
     void present(uint32_t imageIndex, VkSemaphore renderSignal);
 
-    // Zoom helpers
-    static float clampZoom(float z);
-    static float worldSizeForZoom(float z);
+    // Zoom helper (mutates member zoom)
     void applyZoomSteps(float steps);
 };

@@ -117,6 +117,36 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     SHADER_DIR="${SHADER_OUT_DIR}"
 )
 
+# Tests
+option(BUILD_TESTS "Build unit tests" ON)
+if(BUILD_TESTS)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.15.2
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    enable_testing()
+
+    add_executable(particle-life-tests
+        tests/test_math_utils.cpp
+        tests/test_particle_system.cpp
+        src/particle_system.cpp
+    )
+    target_include_directories(particle-life-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(particle-life-tests PRIVATE
+        GTest::gtest_main
+        Vulkan::Vulkan
+    )
+
+    include(GoogleTest)
+    gtest_discover_tests(particle-life-tests)
+endif()
+
 # Platform-specific
 if(APPLE)
     target_compile_definitions(${PROJECT_NAME} PRIVATE VK_USE_PLATFORM_MACOS_MVK)

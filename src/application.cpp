@@ -9,9 +9,6 @@
 #include <cmath>
 
 static constexpr float DEFAULT_ZOOM = 1.0f;
-static constexpr float MIN_ZOOM = 0.25f;
-static constexpr float MAX_ZOOM = 8.0f;
-static constexpr float ZOOM_STEP = 1.15f;
 
 static const ImVec4 TYPE_COLORS[ParticleSystem::MAX_TYPES] = {
     {1.0f, 0.2f, 0.2f, 1.0f},
@@ -24,24 +21,9 @@ static const ImVec4 TYPE_COLORS[ParticleSystem::MAX_TYPES] = {
     {0.8f, 0.8f, 0.8f, 1.0f},
 };
 
-// --- Zoom helpers ---
-
-float Application::clampZoom(float z)
-{
-    return std::clamp(z, MIN_ZOOM, MAX_ZOOM);
-}
-
-float Application::worldSizeForZoom(float z)
-{
-    z = clampZoom(z);
-    return z < 1.0f ? 1.0f / z : 1.0f;
-}
-
 void Application::applyZoomSteps(float steps)
 {
-    if (steps == 0.0f)
-        return;
-    zoom = clampZoom(zoom * std::pow(ZOOM_STEP, steps));
+    zoom = math_utils::applyZoomSteps(zoom, steps);
 }
 
 // --- Initialization ---
@@ -123,7 +105,7 @@ void Application::run()
             buildUI();
         }
 
-        particles.setWorldSize(ctx.getDevice(), worldSizeForZoom(zoom));
+        particles.setWorldSize(ctx.getDevice(), math_utils::worldSizeForZoom(zoom));
         ImGui::Render();
 
         if (needsReinit)
@@ -236,15 +218,15 @@ void Application::buildUI()
 
     if (ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::SliderFloat("Zoom", &zoom, MIN_ZOOM, MAX_ZOOM, "%.2fx", ImGuiSliderFlags_Logarithmic);
-        zoom = clampZoom(zoom);
+        ImGui::SliderFloat("Zoom", &zoom, math_utils::MIN_ZOOM, math_utils::MAX_ZOOM, "%.2fx", ImGuiSliderFlags_Logarithmic);
+        zoom = math_utils::clampZoom(zoom);
         ImGui::SameLine();
         if (ImGui::Button("Reset Zoom"))
         {
             zoom = DEFAULT_ZOOM;
         }
         ImGui::TextUnformatted("Mouse wheel or +/- keys");
-        ImGui::Text("Arena: %.2f x %.2f", worldSizeForZoom(zoom), worldSizeForZoom(zoom));
+        ImGui::Text("Arena: %.2f x %.2f", math_utils::worldSizeForZoom(zoom), math_utils::worldSizeForZoom(zoom));
     }
 
     if (ImGui::CollapsingHeader("Interaction", ImGuiTreeNodeFlags_DefaultOpen))
