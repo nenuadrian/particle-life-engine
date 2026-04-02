@@ -7,6 +7,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 static constexpr float DEFAULT_ZOOM = 1.0f;
 
@@ -20,6 +21,136 @@ static const ImVec4 TYPE_COLORS[ParticleSystem::MAX_TYPES] = {
     {1.0f, 0.6f, 0.2f, 1.0f},
     {0.8f, 0.8f, 0.8f, 1.0f},
 };
+
+namespace
+{
+constexpr ImVec4 ACCENT_COLOR(0.35f, 0.68f, 1.0f, 1.0f);
+constexpr ImVec4 SUCCESS_COLOR(0.34f, 0.82f, 0.58f, 1.0f);
+constexpr ImVec4 WARNING_COLOR(0.95f, 0.66f, 0.24f, 1.0f);
+constexpr ImVec4 TEXT_COLOR(0.93f, 0.95f, 0.99f, 1.0f);
+constexpr ImVec4 TEXT_MUTED_COLOR(0.54f, 0.58f, 0.66f, 1.0f);
+constexpr ImVec4 SURFACE_COLOR(0.10f, 0.12f, 0.16f, 1.0f);
+constexpr ImVec4 SURFACE_ALT_COLOR(0.13f, 0.15f, 0.20f, 1.0f);
+
+ImVec4 withAlpha(const ImVec4 &color, float alpha)
+{
+    return ImVec4(color.x, color.y, color.z, alpha);
+}
+
+ImVec4 lerpColor(const ImVec4 &a, const ImVec4 &b, float t)
+{
+    return ImVec4(
+        a.x + (b.x - a.x) * t,
+        a.y + (b.y - a.y) * t,
+        a.z + (b.z - a.z) * t,
+        a.w + (b.w - a.w) * t);
+}
+
+ImVec4 attractionCellColor(float value)
+{
+    const ImVec4 repelColor(0.90f, 0.33f, 0.40f, 1.0f);
+    const ImVec4 neutralColor(0.15f, 0.18f, 0.23f, 1.0f);
+    const ImVec4 attractColor(0.25f, 0.80f, 0.63f, 1.0f);
+
+    return value < 0.0f
+               ? lerpColor(neutralColor, repelColor, -value)
+               : lerpColor(neutralColor, attractColor, value);
+}
+
+void applyModernDarkTheme()
+{
+    ImGui::StyleColorsDark();
+
+    ImGuiStyle &style = ImGui::GetStyle();
+    style.Alpha = 1.0f;
+    style.DisabledAlpha = 0.55f;
+    style.WindowPadding = ImVec2(18.0f, 16.0f);
+    style.FramePadding = ImVec2(10.0f, 7.0f);
+    style.CellPadding = ImVec2(8.0f, 6.0f);
+    style.ItemSpacing = ImVec2(10.0f, 10.0f);
+    style.ItemInnerSpacing = ImVec2(8.0f, 6.0f);
+    style.IndentSpacing = 20.0f;
+    style.ScrollbarSize = 12.0f;
+    style.GrabMinSize = 10.0f;
+
+    style.WindowBorderSize = 1.0f;
+    style.ChildBorderSize = 1.0f;
+    style.PopupBorderSize = 1.0f;
+    style.FrameBorderSize = 1.0f;
+    style.TabBorderSize = 0.0f;
+
+    style.WindowRounding = 18.0f;
+    style.ChildRounding = 14.0f;
+    style.FrameRounding = 10.0f;
+    style.PopupRounding = 12.0f;
+    style.ScrollbarRounding = 12.0f;
+    style.GrabRounding = 10.0f;
+    style.TabRounding = 12.0f;
+    style.WindowTitleAlign = ImVec2(0.03f, 0.5f);
+
+    ImVec4 *colors = style.Colors;
+    colors[ImGuiCol_Text] = TEXT_COLOR;
+    colors[ImGuiCol_TextDisabled] = TEXT_MUTED_COLOR;
+    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.08f, 0.11f, 0.96f);
+    colors[ImGuiCol_ChildBg] = SURFACE_COLOR;
+    colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.10f, 0.13f, 0.98f);
+    colors[ImGuiCol_Border] = ImVec4(0.18f, 0.22f, 0.28f, 0.90f);
+    colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    colors[ImGuiCol_FrameBg] = SURFACE_ALT_COLOR;
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.22f, 0.29f, 1.0f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.25f, 0.33f, 1.0f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.06f, 0.08f, 0.11f, 1.0f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.10f, 0.14f, 1.0f);
+    colors[ImGuiCol_MenuBarBg] = ImVec4(0.08f, 0.10f, 0.13f, 1.0f);
+    colors[ImGuiCol_ScrollbarBg] = withAlpha(SURFACE_COLOR, 0.35f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.27f, 0.31f, 0.39f, 1.0f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.34f, 0.39f, 0.49f, 1.0f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.40f, 0.46f, 0.57f, 1.0f);
+    colors[ImGuiCol_CheckMark] = ACCENT_COLOR;
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.50f, 0.74f, 1.0f, 0.85f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.63f, 0.82f, 1.0f, 1.0f);
+    colors[ImGuiCol_Button] = ImVec4(0.16f, 0.22f, 0.31f, 0.95f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.22f, 0.32f, 0.45f, 1.0f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.28f, 0.39f, 0.54f, 1.0f);
+    colors[ImGuiCol_Header] = ImVec4(0.12f, 0.16f, 0.22f, 0.96f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.18f, 0.24f, 0.33f, 1.0f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.22f, 0.29f, 0.40f, 1.0f);
+    colors[ImGuiCol_Separator] = ImVec4(0.20f, 0.25f, 0.31f, 0.90f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.37f, 0.55f, 0.83f, 1.0f);
+    colors[ImGuiCol_SeparatorActive] = ACCENT_COLOR;
+    colors[ImGuiCol_ResizeGrip] = withAlpha(ACCENT_COLOR, 0.20f);
+    colors[ImGuiCol_ResizeGripHovered] = withAlpha(ACCENT_COLOR, 0.55f);
+    colors[ImGuiCol_ResizeGripActive] = withAlpha(ACCENT_COLOR, 0.90f);
+    colors[ImGuiCol_Tab] = ImVec4(0.11f, 0.14f, 0.18f, 1.0f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.21f, 0.30f, 0.42f, 1.0f);
+    colors[ImGuiCol_TabSelected] = ImVec4(0.16f, 0.24f, 0.35f, 1.0f);
+    colors[ImGuiCol_TabDimmed] = ImVec4(0.10f, 0.12f, 0.16f, 1.0f);
+    colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.14f, 0.18f, 0.25f, 1.0f);
+    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.10f, 0.13f, 0.17f, 1.0f);
+    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.18f, 0.22f, 0.28f, 0.90f);
+    colors[ImGuiCol_TableBorderLight] = ImVec4(0.15f, 0.19f, 0.24f, 0.60f);
+    colors[ImGuiCol_TableRowBg] = withAlpha(SURFACE_COLOR, 0.0f);
+    colors[ImGuiCol_TableRowBgAlt] = withAlpha(SURFACE_ALT_COLOR, 0.22f);
+}
+
+void drawMetricCard(const char *id, const char *label, const char *value, const char *hint, const ImVec4 &tint, float width)
+{
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, withAlpha(tint, 0.08f));
+    ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(tint, 0.28f));
+
+    ImGui::BeginChild(id, ImVec2(width, 96.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(tint, 0.92f));
+    ImGui::TextUnformatted(label);
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted(value);
+    ImGui::TextDisabled("%s", hint);
+    ImGui::EndChild();
+
+    ImGui::PopStyleColor(2);
+}
+}
 
 void Application::applyZoomSteps(float steps)
 {
@@ -50,11 +181,7 @@ void Application::initImGui()
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    ImGui::StyleColorsDark();
-    ImGuiStyle &style = ImGui::GetStyle();
-    style.WindowRounding = 6.0f;
-    style.FrameRounding = 3.0f;
-    style.Alpha = 0.95f;
+    applyModernDarkTheme();
 
     ImGui_ImplGlfw_InitForVulkan(ctx.getWindow(), true);
 
@@ -199,24 +326,52 @@ void Application::updateFPS()
 void Application::buildUI()
 {
     SimParams &p = particles.getSimParams();
+    const float worldSize = math_utils::worldSizeForZoom(zoom);
+    const ImGuiTreeNodeFlags defaultSectionFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
+    const ImGuiTreeNodeFlags sectionFlags = ImGuiTreeNodeFlags_SpanAvailWidth;
 
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(380, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(16, 16), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(430, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.96f);
 
-    ImGui::Begin("Settings (Tab to toggle)");
+    if (!ImGui::Begin("SettingsPanel", nullptr, ImGuiWindowFlags_NoTitleBar))
+    {
+        ImGui::End();
+        return;
+    }
 
-    ImGui::Text("FPS: %.1f", fps);
-    ImGui::Text("Particles: %u | Types: %u", p.particleCount, p.numTypes);
-    ImGui::Separator();
+    ImGui::PushStyleColor(ImGuiCol_Text, ACCENT_COLOR);
+    ImGui::TextUnformatted("Particle Life");
+    ImGui::PopStyleColor();
+    ImGui::TextDisabled("Tab toggles this panel. Mouse wheel or +/- changes zoom.");
+    ImGui::Spacing();
 
-    if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen))
+    char fpsValue[32];
+    std::snprintf(fpsValue, sizeof(fpsValue), "%.1f FPS", fps);
+    const char *fpsHint = fps >= 60.0f ? "Rendering is smooth" : "Workload is climbing";
+
+    char viewValue[32];
+    std::snprintf(viewValue, sizeof(viewValue), "%.2fx zoom", zoom);
+    char viewHint[48];
+    std::snprintf(viewHint, sizeof(viewHint), "Arena %.2f x %.2f", worldSize, worldSize);
+
+    const float cardGap = ImGui::GetStyle().ItemSpacing.x;
+    const float cardWidth = (ImGui::GetContentRegionAvail().x - cardGap) * 0.5f;
+
+    drawMetricCard("PerfCard", "Frame Rate", fpsValue, fpsHint, ACCENT_COLOR, cardWidth);
+    ImGui::SameLine();
+    drawMetricCard("ViewCard", "View Scale", viewValue, viewHint, SUCCESS_COLOR, cardWidth);
+
+    ImGui::SeparatorText("Controls");
+
+    if (ImGui::CollapsingHeader("Simulation", defaultSectionFlags))
     {
         ImGui::SliderFloat("Time Step", &p.deltaTime, 0.001f, 0.1f, "%.3f");
         ImGui::SliderFloat("Friction", &p.frictionFactor, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Force Scale", &p.forceScale, 0.001f, 0.5f, "%.3f");
     }
 
-    if (ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("View", defaultSectionFlags))
     {
         ImGui::SliderFloat("Zoom", &zoom, math_utils::MIN_ZOOM, math_utils::MAX_ZOOM, "%.2fx", ImGuiSliderFlags_Logarithmic);
         zoom = math_utils::clampZoom(zoom);
@@ -225,18 +380,18 @@ void Application::buildUI()
         {
             zoom = DEFAULT_ZOOM;
         }
-        ImGui::TextUnformatted("Mouse wheel or +/- keys");
+        ImGui::TextDisabled("Mouse wheel or +/- keys");
         ImGui::Text("Arena: %.2f x %.2f", math_utils::worldSizeForZoom(zoom), math_utils::worldSizeForZoom(zoom));
     }
 
-    if (ImGui::CollapsingHeader("Interaction", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Interaction", defaultSectionFlags))
     {
         ImGui::SliderFloat("Max Distance", &p.maxDistance, 0.01f, 0.5f, "%.3f");
         ImGui::SliderFloat("Min Distance", &p.minDistance, 0.001f, p.maxDistance, "%.3f");
         ImGui::SliderFloat("Repulsion", &p.repulsionStrength, 0.0f, 5.0f, "%.2f");
     }
 
-    if (ImGui::CollapsingHeader("Particles"))
+    if (ImGui::CollapsingHeader("Particles", sectionFlags))
     {
         int count = static_cast<int>(p.particleCount);
         int types = static_cast<int>(p.numTypes);
@@ -252,67 +407,103 @@ void Application::buildUI()
             needsReinit = true;
         }
 
-        if (ImGui::Button("Randomize Attractions"))
+        const float actionWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+
+        if (ImGui::Button("Randomize Attractions", ImVec2(actionWidth, 0.0f)))
         {
             particles.randomizeAttractions();
             attractionDirty = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("Reset Particles"))
+        ImGui::PushStyleColor(ImGuiCol_Button, withAlpha(WARNING_COLOR, 0.20f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, withAlpha(WARNING_COLOR, 0.34f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, withAlpha(WARNING_COLOR, 0.48f));
+        if (ImGui::Button("Reset Particles", ImVec2(actionWidth, 0.0f)))
         {
             needsReinit = true;
         }
-        ImGui::TextUnformatted("Higher counts are slower: the compute pass is O(n^2).");
+        ImGui::PopStyleColor(3);
+        ImGui::TextDisabled("Higher counts are slower because the compute pass is O(n^2).");
     }
 
-    if (ImGui::CollapsingHeader("Attraction Matrix"))
+    if (ImGui::CollapsingHeader("Attraction Matrix", sectionFlags))
     {
         float *matrix = particles.getAttractionMatrix();
         uint32_t n = p.numTypes;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2, 2));
+        ImGui::TextDisabled("Negative values repel. Positive values attract.");
 
-        ImGui::Text("     ");
-        for (uint32_t j = 0; j < n; j++)
+        const float matrixHeight = std::min(340.0f, 52.0f + static_cast<float>(n) * 34.0f);
+        if (ImGui::BeginChild("AttractionMatrixPanel", ImVec2(0.0f, matrixHeight), ImGuiChildFlags_Borders))
         {
-            ImGui::SameLine();
-            ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[j]);
-            ImGui::Text("  %u  ", j);
-            ImGui::PopStyleColor();
-        }
+            const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingFixedFit |
+                                               ImGuiTableFlags_BordersInnerH |
+                                               ImGuiTableFlags_BordersInnerV |
+                                               ImGuiTableFlags_RowBg;
 
-        for (uint32_t i = 0; i < n; i++)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[i]);
-            ImGui::Text("  %u  ", i);
-            ImGui::PopStyleColor();
-            for (uint32_t j = 0; j < n; j++)
+            if (ImGui::BeginTable("AttractionMatrixTable", static_cast<int>(n) + 1, tableFlags))
             {
-                ImGui::SameLine();
-                float &val = matrix[i * ParticleSystem::MAX_TYPES + j];
-
-                float t = (val + 1.0f) * 0.5f;
-                ImVec4 col(1.0f - t, t, 0.2f, 0.7f);
-                ImGui::PushStyleColor(ImGuiCol_FrameBg, col);
-                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(col.x, col.y, col.z, 0.9f));
-                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(col.x, col.y, col.z, 1.0f));
-
-                ImGui::PushItemWidth(36);
-                char label[16];
-                snprintf(label, sizeof(label), "##a%u%u", i, j);
-                if (ImGui::SliderFloat(label, &val, -1.0f, 1.0f, ""))
+                ImGui::TableSetupColumn("##row", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+                for (uint32_t j = 0; j < n; ++j)
                 {
-                    attractionDirty = true;
+                    char columnLabel[8];
+                    std::snprintf(columnLabel, sizeof(columnLabel), "%u", j);
+                    ImGui::TableSetupColumn(columnLabel, ImGuiTableColumnFlags_WidthFixed, 44.0f);
                 }
-                if (ImGui::IsItemHovered())
+
+                ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted("");
+                for (uint32_t j = 0; j < n; ++j)
                 {
-                    ImGui::SetTooltip("Type %u -> %u: %.2f", i, j, val);
+                    ImGui::TableSetColumnIndex(static_cast<int>(j) + 1);
+                    ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[j]);
+                    ImGui::Text("%u", j);
+                    ImGui::PopStyleColor();
                 }
-                ImGui::PopItemWidth();
-                ImGui::PopStyleColor(3);
+
+                for (uint32_t i = 0; i < n; ++i)
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[i]);
+                    ImGui::Text("%u", i);
+                    ImGui::PopStyleColor();
+
+                    for (uint32_t j = 0; j < n; ++j)
+                    {
+                        ImGui::TableSetColumnIndex(static_cast<int>(j) + 1);
+                        float &val = matrix[i * ParticleSystem::MAX_TYPES + j];
+                        ImVec4 cellColor = attractionCellColor(val);
+
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
+                        ImGui::PushStyleColor(ImGuiCol_FrameBg, withAlpha(cellColor, 0.52f));
+                        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, withAlpha(cellColor, 0.72f));
+                        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, withAlpha(cellColor, 0.88f));
+                        ImGui::PushStyleColor(ImGuiCol_SliderGrab, withAlpha(TEXT_COLOR, 0.40f));
+                        ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, TEXT_COLOR);
+
+                        ImGui::PushItemWidth(-1.0f);
+                        char label[16];
+                        std::snprintf(label, sizeof(label), "##a%u%u", i, j);
+                        if (ImGui::SliderFloat(label, &val, -1.0f, 1.0f, ""))
+                        {
+                            attractionDirty = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::SetTooltip("Type %u -> %u: %.2f", i, j, val);
+                        }
+                        ImGui::PopItemWidth();
+                        ImGui::PopStyleColor(5);
+                        ImGui::PopStyleVar();
+                    }
+                }
+
+                ImGui::EndTable();
             }
+            ImGui::EndChild();
         }
-        ImGui::PopStyleVar();
     }
 
     ImGui::End();

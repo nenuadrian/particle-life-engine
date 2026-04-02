@@ -8,7 +8,7 @@ GPU-accelerated Particle Life simulation using Vulkan compute shaders. Multiple 
 
 ![Particle Life Engine](assets/example.png)
 
-![Particle Life Engine](assets/example2.png)
+![Particle Life Engine 2](assets/example2.png)
 
 ## Prerequisites
 
@@ -64,7 +64,7 @@ docker run -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix particle-life-en
 
 ## How It Works
 
-- 4000 particles across 6 types, each with a random attraction/repulsion matrix
+- Tens of thousands of particles across multiple types, each with a random attraction/repulsion matrix
 - A Vulkan compute shader calculates pairwise forces every frame
 - Particles wrap around a toroidal space (edges connect)
 - Close-range repulsion prevents collapse; medium-range attraction/repulsion drives emergent patterns
