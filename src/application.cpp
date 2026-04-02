@@ -1,0 +1,442 @@
+#include "application.h"
+
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
+#include <iostream>
+#include <algorithm>
+#include <cmath>
+
+static constexpr float DEFAULT_ZOOM = 1.0f;
+static constexpr float MIN_ZOOM = 0.25f;
+static constexpr float MAX_ZOOM = 8.0f;
+static constexpr float ZOOM_STEP = 1.15f;
+
+static const ImVec4 TYPE_COLORS[ParticleSystem::MAX_TYPES] = {
+    {1.0f, 0.2f, 0.2f, 1.0f},
+    {0.2f, 1.0f, 0.2f, 1.0f},
+    {0.3f, 0.5f, 1.0f, 1.0f},
+    {1.0f, 1.0f, 0.2f, 1.0f},
+    {1.0f, 0.2f, 1.0f, 1.0f},
+    {0.2f, 1.0f, 1.0f, 1.0f},
+    {1.0f, 0.6f, 0.2f, 1.0f},
+    {0.8f, 0.8f, 0.8f, 1.0f},
+};
+
+// --- Zoom helpers ---
+
+float Application::clampZoom(float z) {
+    return std::clamp(z, MIN_ZOOM, MAX_ZOOM);
+}
+
+float Application::worldSizeForZoom(float z) {
+    z = clampZoom(z);
+    return z < 1.0f ? 1.0f / z : 1.0f;
+}
+
+void Application::applyZoomSteps(float steps) {
+    if (steps == 0.0f) return;
+    zoom = clampZoom(zoom * std::pow(ZOOM_STEP, steps));
+}
+
+// --- Initialization ---
+
+void Application::init(int width, int height, const std::string& title) {
+    shaderDir = SHADER_DIR;
+    zoom = DEFAULT_ZOOM;
+
+    ctx.init(width, height, title);
+    particles.init(ctx.getDevice(), ctx.getPhysicalDevice());
+    computePipe.init(ctx.getDevice(), particles, shaderDir);
+    graphicsPipe.init(ctx.getDevice(), ctx.getRenderPass(), ctx.getSwapchainExtent(),
+                      particles, shaderDir);
+    initImGui();
+
+    lastFPSTime = std::chrono::steady_clock::now();
+}
+
+void Application::initImGui() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 6.0f;
+    style.FrameRounding = 3.0f;
+    style.Alpha = 0.95f;
+
+    ImGui_ImplGlfw_InitForVulkan(ctx.getWindow(), true);
+
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.Instance = ctx.getInstance();
+    initInfo.PhysicalDevice = ctx.getPhysicalDevice();
+    initInfo.Device = ctx.getDevice();
+    initInfo.QueueFamily = ctx.getQueueFamilies().graphicsFamily.value();
+    initInfo.Queue = ctx.getGraphicsQueue();
+    initInfo.DescriptorPool = ctx.getImGuiDescriptorPool();
+    initInfo.MinImageCount = 2;
+    initInfo.ImageCount = ctx.getSwapchainImageCount();
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.RenderPass = ctx.getRenderPass();
+    initInfo.Subpass = 0;
+
+    ImGui_ImplVulkan_Init(&initInfo);
+    ImGui_ImplVulkan_CreateFontsTexture();
+}
+
+// --- Main loop ---
+
+void Application::run() {
+    while (!ctx.shouldClose()) {
+        ctx.pollEvents();
+        processInput();
+        updateFPS();
+
+        // Begin ImGui frame
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        // Mouse wheel zoom (outside ImGui windows)
+        ImGuiIO& io = ImGui::GetIO();
+        if (!io.WantCaptureMouse && io.MouseWheel != 0.0f) {
+            applyZoomSteps(io.MouseWheel);
+        }
+
+        needsReinit = false;
+        attractionDirty = false;
+
+        if (showUI) {
+            buildUI();
+        }
+
+        particles.setWorldSize(ctx.getDevice(), worldSizeForZoom(zoom));
+        ImGui::Render();
+
+        if (needsReinit) {
+            handleReinit();
+            continue;
+        }
+
+        if (attractionDirty) {
+            particles.uploadAttractionMatrix(ctx.getDevice());
+        }
+
+        submitCompute();
+
+        // Acquire swapchain image
+        VkFence graphicsFence = ctx.getInFlightFence(currentFrame);
+        vkWaitForFences(ctx.getDevice(), 1, &graphicsFence, VK_TRUE, UINT64_MAX);
+
+        uint32_t imageIndex;
+        VkResult result = vkAcquireNextImageKHR(ctx.getDevice(), ctx.getSwapchain(),
+            UINT64_MAX, ctx.getImageAvailableSemaphore(currentFrame), VK_NULL_HANDLE, &imageIndex);
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            ctx.recreateSwapchain();
+            graphicsPipe.recreate(ctx.getDevice(), ctx.getRenderPass(),
+                                  ctx.getSwapchainExtent(), shaderDir);
+            continue;
+        }
+
+        vkResetFences(ctx.getDevice(), 1, &graphicsFence);
+
+        submitGraphics(imageIndex);
+
+        VkSemaphore renderSignal = ctx.getRenderFinishedSemaphore(currentFrame);
+        present(imageIndex, renderSignal);
+
+        currentFrame = (currentFrame + 1) % VulkanContext::MAX_FRAMES_IN_FLIGHT;
+    }
+
+    vkDeviceWaitIdle(ctx.getDevice());
+}
+
+// --- Input handling ---
+
+void Application::processInput() {
+    GLFWwindow* win = ctx.getWindow();
+
+    bool tabDown = glfwGetKey(win, GLFW_KEY_TAB) == GLFW_PRESS;
+    if (tabDown && !tabWasPressed) {
+        showUI = !showUI;
+    }
+    tabWasPressed = tabDown;
+
+    ImGuiIO& io = ImGui::GetIO();
+    bool zoomInDown = glfwGetKey(win, GLFW_KEY_EQUAL) == GLFW_PRESS ||
+                      glfwGetKey(win, GLFW_KEY_KP_ADD) == GLFW_PRESS;
+    bool zoomOutDown = glfwGetKey(win, GLFW_KEY_MINUS) == GLFW_PRESS ||
+                       glfwGetKey(win, GLFW_KEY_KP_SUBTRACT) == GLFW_PRESS;
+
+    if (!io.WantCaptureKeyboard) {
+        if (zoomInDown && !zoomInWasPressed) applyZoomSteps(1.0f);
+        if (zoomOutDown && !zoomOutWasPressed) applyZoomSteps(-1.0f);
+    }
+
+    zoomInWasPressed = zoomInDown;
+    zoomOutWasPressed = zoomOutDown;
+}
+
+void Application::updateFPS() {
+    frameCount++;
+    auto now = std::chrono::steady_clock::now();
+    float elapsed = std::chrono::duration<float>(now - lastFPSTime).count();
+    if (elapsed >= 0.5f) {
+        fps = static_cast<float>(frameCount) / elapsed;
+        frameCount = 0;
+        lastFPSTime = now;
+    }
+}
+
+// --- UI ---
+
+void Application::buildUI() {
+    SimParams& p = particles.getSimParams();
+
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(380, 0), ImGuiCond_FirstUseEver);
+
+    ImGui::Begin("Settings (Tab to toggle)");
+
+    ImGui::Text("FPS: %.1f", fps);
+    ImGui::Text("Particles: %u | Types: %u", p.particleCount, p.numTypes);
+    ImGui::Separator();
+
+    if (ImGui::CollapsingHeader("Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Time Step", &p.deltaTime, 0.001f, 0.1f, "%.3f");
+        ImGui::SliderFloat("Friction", &p.frictionFactor, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Force Scale", &p.forceScale, 0.001f, 0.5f, "%.3f");
+    }
+
+    if (ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Zoom", &zoom, MIN_ZOOM, MAX_ZOOM, "%.2fx", ImGuiSliderFlags_Logarithmic);
+        zoom = clampZoom(zoom);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Zoom")) {
+            zoom = DEFAULT_ZOOM;
+        }
+        ImGui::TextUnformatted("Mouse wheel or +/- keys");
+        ImGui::Text("Arena: %.2f x %.2f", worldSizeForZoom(zoom), worldSizeForZoom(zoom));
+    }
+
+    if (ImGui::CollapsingHeader("Interaction", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("Max Distance", &p.maxDistance, 0.01f, 0.5f, "%.3f");
+        ImGui::SliderFloat("Min Distance", &p.minDistance, 0.001f, p.maxDistance, "%.3f");
+        ImGui::SliderFloat("Repulsion", &p.repulsionStrength, 0.0f, 5.0f, "%.2f");
+    }
+
+    if (ImGui::CollapsingHeader("Particles")) {
+        int count = static_cast<int>(p.particleCount);
+        int types = static_cast<int>(p.numTypes);
+
+        if (ImGui::SliderInt("Count", &count, 100, static_cast<int>(ParticleSystem::MAX_PARTICLE_COUNT))) {
+            p.particleCount = static_cast<uint32_t>(count);
+            needsReinit = true;
+        }
+        if (ImGui::SliderInt("Types", &types, 1, static_cast<int>(ParticleSystem::MAX_TYPES))) {
+            p.numTypes = static_cast<uint32_t>(types);
+            needsReinit = true;
+        }
+
+        if (ImGui::Button("Randomize Attractions")) {
+            particles.randomizeAttractions();
+            attractionDirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Particles")) {
+            needsReinit = true;
+        }
+        ImGui::TextUnformatted("Higher counts are slower: the compute pass is O(n^2).");
+    }
+
+    if (ImGui::CollapsingHeader("Attraction Matrix")) {
+        float* matrix = particles.getAttractionMatrix();
+        uint32_t n = p.numTypes;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2, 2));
+
+        ImGui::Text("     ");
+        for (uint32_t j = 0; j < n; j++) {
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[j]);
+            ImGui::Text("  %u  ", j);
+            ImGui::PopStyleColor();
+        }
+
+        for (uint32_t i = 0; i < n; i++) {
+            ImGui::PushStyleColor(ImGuiCol_Text, TYPE_COLORS[i]);
+            ImGui::Text("  %u  ", i);
+            ImGui::PopStyleColor();
+            for (uint32_t j = 0; j < n; j++) {
+                ImGui::SameLine();
+                float& val = matrix[i * ParticleSystem::MAX_TYPES + j];
+
+                float t = (val + 1.0f) * 0.5f;
+                ImVec4 col(1.0f - t, t, 0.2f, 0.7f);
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, col);
+                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(col.x, col.y, col.z, 0.9f));
+                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(col.x, col.y, col.z, 1.0f));
+
+                ImGui::PushItemWidth(36);
+                char label[16];
+                snprintf(label, sizeof(label), "##a%u%u", i, j);
+                if (ImGui::SliderFloat(label, &val, -1.0f, 1.0f, "")) {
+                    attractionDirty = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Type %u -> %u: %.2f", i, j, val);
+                }
+                ImGui::PopItemWidth();
+                ImGui::PopStyleColor(3);
+            }
+        }
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::End();
+}
+
+// --- Reinit ---
+
+void Application::handleReinit() {
+    particles.reinitialize(ctx.getDevice(), ctx.getPhysicalDevice());
+    computePipe.updateDescriptors(ctx.getDevice(), particles);
+    graphicsPipe.cleanup(ctx.getDevice());
+    graphicsPipe.init(ctx.getDevice(), ctx.getRenderPass(), ctx.getSwapchainExtent(),
+                      particles, shaderDir);
+}
+
+// --- Compute pass ---
+
+void Application::submitCompute() {
+    VkFence computeFence = ctx.getComputeInFlightFence(currentFrame);
+    vkWaitForFences(ctx.getDevice(), 1, &computeFence, VK_TRUE, UINT64_MAX);
+    vkResetFences(ctx.getDevice(), 1, &computeFence);
+
+    VkCommandBuffer computeCmd = ctx.getComputeCommandBuffer(currentFrame);
+    vkResetCommandBuffer(computeCmd, 0);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(computeCmd, &beginInfo);
+    computePipe.recordCommands(computeCmd, particles, currentFrame);
+
+    VkBufferMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barrier.buffer = (currentFrame % 2 == 0) ? particles.getBufferB() : particles.getBufferA();
+    barrier.size = particles.getBufferSize();
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+    vkCmdPipelineBarrier(computeCmd,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+        0, 0, nullptr, 1, &barrier, 0, nullptr);
+
+    vkEndCommandBuffer(computeCmd);
+
+    VkSubmitInfo computeSubmit{};
+    computeSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    computeSubmit.commandBufferCount = 1;
+    computeSubmit.pCommandBuffers = &computeCmd;
+    computeSubmit.signalSemaphoreCount = 1;
+    VkSemaphore computeSignal = ctx.getComputeFinishedSemaphore(currentFrame);
+    computeSubmit.pSignalSemaphores = &computeSignal;
+
+    vkQueueSubmit(ctx.getComputeQueue(), 1, &computeSubmit,
+                  ctx.getComputeInFlightFence(currentFrame));
+}
+
+// --- Graphics pass ---
+
+void Application::submitGraphics(uint32_t imageIndex) {
+    VkCommandBuffer graphicsCmd = ctx.getCommandBuffer(currentFrame);
+    vkResetCommandBuffer(graphicsCmd, 0);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(graphicsCmd, &beginInfo);
+
+    VkRenderPassBeginInfo rpBegin{};
+    rpBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpBegin.renderPass = ctx.getRenderPass();
+    rpBegin.framebuffer = ctx.getFramebuffers()[imageIndex];
+    rpBegin.renderArea.extent = ctx.getSwapchainExtent();
+    VkClearValue clearColor = {{{0.02f, 0.02f, 0.05f, 1.0f}}};
+    rpBegin.clearValueCount = 1;
+    rpBegin.pClearValues = &clearColor;
+
+    vkCmdBeginRenderPass(graphicsCmd, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+    graphicsPipe.recordCommands(graphicsCmd, particles, currentFrame);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graphicsCmd);
+    vkCmdEndRenderPass(graphicsCmd);
+    vkEndCommandBuffer(graphicsCmd);
+
+    // Submit
+    VkSemaphore waitSemaphores[] = {
+        ctx.getComputeFinishedSemaphore(currentFrame),
+        ctx.getImageAvailableSemaphore(currentFrame)
+    };
+    VkPipelineStageFlags waitStages[] = {
+        VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+    };
+
+    VkSubmitInfo graphicsSubmit{};
+    graphicsSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    graphicsSubmit.waitSemaphoreCount = 2;
+    graphicsSubmit.pWaitSemaphores = waitSemaphores;
+    graphicsSubmit.pWaitDstStageMask = waitStages;
+    graphicsSubmit.commandBufferCount = 1;
+    graphicsSubmit.pCommandBuffers = &graphicsCmd;
+    VkSemaphore renderSignal = ctx.getRenderFinishedSemaphore(currentFrame);
+    graphicsSubmit.signalSemaphoreCount = 1;
+    graphicsSubmit.pSignalSemaphores = &renderSignal;
+
+    if (vkQueueSubmit(ctx.getGraphicsQueue(), 1, &graphicsSubmit,
+                      ctx.getInFlightFence(currentFrame)) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to submit draw command buffer");
+    }
+}
+
+// --- Present ---
+
+void Application::present(uint32_t imageIndex, VkSemaphore renderSignal) {
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &renderSignal;
+    presentInfo.swapchainCount = 1;
+    VkSwapchainKHR swapchains[] = { ctx.getSwapchain() };
+    presentInfo.pSwapchains = swapchains;
+    presentInfo.pImageIndices = &imageIndex;
+
+    VkResult result = vkQueuePresentKHR(ctx.getPresentQueue(), &presentInfo);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
+        ctx.framebufferResized) {
+        ctx.framebufferResized = false;
+        ctx.recreateSwapchain();
+        graphicsPipe.recreate(ctx.getDevice(), ctx.getRenderPass(),
+                              ctx.getSwapchainExtent(), shaderDir);
+    }
+}
+
+// --- Cleanup ---
+
+void Application::cleanup() {
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
+    graphicsPipe.cleanup(ctx.getDevice());
+    computePipe.cleanup(ctx.getDevice());
+    particles.cleanup(ctx.getDevice());
+    ctx.cleanup();
+}

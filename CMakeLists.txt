@@ -57,6 +57,7 @@ target_link_libraries(imgui PUBLIC
 # Source files
 set(SOURCES
     src/main.cpp
+    src/application.cpp
     src/vulkan_context.cpp
     src/compute_pipeline.cpp
     src/graphics_pipeline.cpp
