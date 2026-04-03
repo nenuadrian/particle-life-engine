@@ -8,7 +8,18 @@ docs_dir: docs
 site_dir: site
 
 theme:
-  name: mkdocs
+  name: material
+  palette:
+    scheme: slate
+    primary: black
+    accent: green
+  font:
+    text: IBM Plex Mono
+    code: IBM Plex Mono
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
 
 nav:
   - Overview: index.md
@@ -23,6 +34,3 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-
-extra_css:
-  - stylesheets/terminal.css

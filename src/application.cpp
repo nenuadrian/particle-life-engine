@@ -180,6 +180,7 @@ void Application::initImGui()
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     applyModernDarkTheme();
 
@@ -330,9 +331,12 @@ void Application::buildUI()
     const ImGuiTreeNodeFlags defaultSectionFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
     const ImGuiTreeNodeFlags sectionFlags = ImGuiTreeNodeFlags_SpanAvailWidth;
 
+    ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+
     ImGui::SetNextWindowPos(ImVec2(16, 16), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(430, 0), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
 
     if (!ImGui::Begin("SettingsPanel", nullptr, ImGuiWindowFlags_NoTitleBar))
     {
@@ -434,7 +438,8 @@ void Application::buildUI()
         ImGui::TextDisabled("Negative values repel. Positive values attract.");
 
         const float matrixHeight = std::min(340.0f, 52.0f + static_cast<float>(n) * 34.0f);
-        if (ImGui::BeginChild("AttractionMatrixPanel", ImVec2(0.0f, matrixHeight), ImGuiChildFlags_Borders))
+        const bool showMatrixPanel = ImGui::BeginChild("AttractionMatrixPanel", ImVec2(0.0f, matrixHeight), ImGuiChildFlags_Borders);
+        if (showMatrixPanel)
         {
             const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingFixedFit |
                                                ImGuiTableFlags_BordersInnerH |
@@ -502,8 +507,8 @@ void Application::buildUI()
 
                 ImGui::EndTable();
             }
-            ImGui::EndChild();
         }
+        ImGui::EndChild();
     }
 
     ImGui::End();
