@@ -20,19 +20,21 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Install Doxygen
-        run: sudo apt-get install -y doxygen
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Create docs output directory
-        run: mkdir -p docs/generated
+      - name: Install MkDocs
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-docs.txt
 
-      - name: Generate docs
-        run: doxygen Doxyfile
+      - name: Build docs
+        run: python -m mkdocs build --strict
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: docs/generated/html
+          path: site
 
   deploy:
     needs: build

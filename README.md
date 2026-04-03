@@ -68,3 +68,12 @@ docker run -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix particle-life-en
 - A Vulkan compute shader calculates pairwise forces every frame
 - Particles wrap around a toroidal space (edges connect)
 - Close-range repulsion prevents collapse; medium-range attraction/repulsion drives emergent patterns
+
+## Documentation
+
+The docs site now uses MkDocs.
+
+```bash
+python3 -m pip install -r requirements-docs.txt
+python3 -m mkdocs serve
+```

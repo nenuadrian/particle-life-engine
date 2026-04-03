@@ -1,0 +1,28 @@
+site_name: Particle Life Engine
+site_description: Vulkan particle-life simulation docs
+site_url: https://nenuadrian.github.io/particle-life-engine/
+repo_url: https://github.com/nenuadrian/particle-life-engine
+repo_name: nenuadrian/particle-life-engine
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: mkdocs
+
+nav:
+  - Overview: index.md
+  - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - Simulation Model: simulation.md
+  - Development: development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/terminal.css
